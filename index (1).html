@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>JUST FILING</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  html,body{margin:0;height:100%;background:#000;overflow:hidden}
+  canvas{display:block;width:100vw;height:100vh;cursor:none}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+'use strict';
+/* =====================================================================
+   COPY — edit jokes here. Encyclopedia voice: formal, terse.
+   Jude's thoughts: lowercase.
+   ===================================================================== */
+const COPY = {
+  title: 'JUST FILING',
+  pressKey: 'press any key',
+  intro: [
+    { art: 'galaxy',   text: 'The Galactic Empire is falling. It will take a while.' },
+    { art: 'dark',     text: 'After that, thirty thousand years of dark.' },
+    { art: 'terminus', text: 'On Terminus, at the edge of everything, a hundred thousand people have a plan.' },
+    { art: 'hall',     text: 'Write down all human knowledge. Cut the dark to one thousand years.' },
+    { art: 'portrait', text: 'This is Jude. He came here to save the galaxy.' },
+    { art: 'stamp',    text: 'He sorts it by first letter.' },
+  ],
+  portraitName: 'JUDE',
+  portraitJob: 'CLERK',
+  // title | entry | Jude's thought | machine doodle stage (optional)
+  pages: [
+    { title: 'GIANT SQUID',  entry: 'A squid, but more.',                 thought: 'g. a through m.' },
+    { title: 'SOAP',         entry: 'Fat and ash. Results vary.',         thought: 's. n through z.' },
+    { title: 'HINGE',        entry: 'Permits a door.',                    thought: 'i came here to save the galaxy.' },
+    { title: 'TUESDAY',      entry: 'A day. See also: the others.',       thought: 'i am saving it one hinge at a time.' },
+    { title: 'ATOMIC POWER', entry: 'Do not open.',                       thought: "i don't even read them. just the first letter." },
+    { title: 'YAWN',         entry: 'Contagious. Cause unknown.',         thought: 'a lever could do this.', stage: 1 },
+    { title: 'EMPEROR, THE', entry: 'Currently one.',                     thought: 'a lever and a spring.', stage: 2 },
+    { title: 'SANDWICH',     entry: 'Bread on both sides. Disputed.',     thought: 'the pages come down a chute.', stage: 3 },
+    { title: 'MOON',         entry: 'Several.',                           thought: 'the chute feeds the stamp.' },
+    { title: 'NOSTALGIA',    entry: 'Formerly better.',                   thought: 'something has to read the first letter.' },
+    { title: 'BUREAUCRACY',  entry: 'See: this.',                         thought: 'a little eye. it only needs to know one thing.', stage: 4 },
+    { title: 'TRANTOR',      entry: 'Capital. Indoors.',                  thought: 'is it past m, or not.' },
+    { title: 'DUST',         entry: 'Arrives on its own.',                thought: 'i could build it out of this desk.' },
+    { title: 'PIGEON',       entry: 'A bird that has stopped trying.',    thought: "it wouldn't get bored." },
+    { title: 'KNOWLEDGE',    entry: 'See: all other entries.',            thought: 'it never wanted to save anything.' },
+    { title: 'QUEUE',        entry: 'People, in order.',                  thought: "it's finished. up here, anyway." },
+    { title: 'LEVER',        entry: "Does the work so a person doesn't have to.", thought: 'they already have an entry for it.' },
+    { title: 'JUDE',         entry: 'Clerk. See: LEVER.',                 thought: 'huh.' },
+    { blank: true }, // the ending starts here
+  ],
+  proposalTitle: 'FILING ENGINE, AUTOMATIC.',
+  proposalEntry: 'Proposed by Jude, clerk.',
+  memoHeader: 'MEMO',
+  memoTitle: 'RE: FILING ENGINE.',
+  memoBody: 'Denied. The Encyclopedia must be compiled by human hands.',
+  memoSign: '— Board of Trustees',
+  memoThought: 'r. n through z.',
+  readFiled: 'FILED: ',
+  readErrors: 'ERRORS NOTICED: 0',
+  pileL: '← A–M',
+  pileR: 'N–Z →',
+  markL: 'A–M',
+  markR: 'N–Z',
+  endTitle: 'JUST FILING',
+};
+
+/* =====================================================================
+   TIMING — all in milliseconds. Edit pacing here.
+   ===================================================================== */
+const TIMING = {
+  typeMs: 32,          // Jude's thoughts, per character
+  introTypeMs: 42,     // intro narration, per character
+  punctPauseMs: 160,   // extra pause after . , ? !
+  stampDown: 90,       // stamp travel to page (thunk at the end)
+  stampHold: 40,       // stamp rests on page
+  slide: 170,          // page slides onto its pile
+  drop: 150,           // next page drops from the stack   (down+hold+slide+drop < 500)
+  doodleHold: 400,     // blank page sits before the doodle moves
+  doodleMove: 1500,    // doodle flies from thought bubble onto blank page
+  upChain: 650,        // proposal travels up the chain
+  silence: 2200,       // the beat of silence
+  memoDrop: 520,       // memo falls back down
+  slamDelay: 700,      // pause before the new stack
+  slamFall: 420,       // new stack falling
+  afterSlam: 2400,     // hold on the new stack before cut to black
+  endCardGuard: 900,   // ignore keys this long on the end card
+  blinkEvery: 3300,
+  blinkLen: 130,
+  titleBlink: 550,
+};
+const SOUND = { volume: 0.5 };
+
+/* =====================================================================
+   MUSIC — a deliberately dull office-chiptune loop, synthesized live.
+   Notes are MIDI numbers (60 = middle C), one per eighth-note step;
+   null = rest. Plays in the intro and while filing; stops for the
+   ending's silence and stays off through the memo, slam and end card.
+   ===================================================================== */
+const MUSIC = {
+  enabled: true,
+  bpm: 96,
+  volume: 0.22,          // relative to SOUND.volume
+  melodyVol: 0.10, bassVol: 0.16, tickVol: 0.05,
+  melody: [
+    72, null, 76, null, 79, null, 76, null,   74, null, 77, null, 81, null, 77, null,
+    72, null, 76, null, 79, null, 76, null,   71, null, 74, null, 79, null, null, null,
+    72, null, 72, null, 76, null, 72, null,   74, null, 74, null, 77, null, 74, null,
+    72, null, 71, null, 69, null, 71, null,   72, null, null, null, 67, null, null, null,
+  ],
+  bass: [
+    48, null, null, null, 43, null, null, null,   50, null, null, null, 45, null, null, null,
+    48, null, null, null, 43, null, null, null,   43, null, null, null, 47, null, 50, null,
+    48, null, null, null, 43, null, null, null,   50, null, null, null, 45, null, null, null,
+    48, null, null, null, 43, null, null, null,   48, null, null, null, 43, null, null, null,
+  ],
+};
+
+/* Palette (from the references: coral, cream, slate, teal, violet ink) */
+const PAL = {
+  ink: '#16141f', white: '#ffffff', black: '#000000',
+  cream: '#f6edd3', creamD: '#dccfaa', tan: '#c3ad84',
+  coral: '#ee9580', coralD: '#d87a69', coralL: '#f6b19e',
+  pink: '#f2b8b5', slate: '#8ea8c2', slateD: '#5f7695', slateDD: '#3e4f70',
+  teal: '#7cb6b4', tealD: '#4b8987', violet: '#3b3d9c', navy: '#141730',
+  skin: '#f3d6b4', skinD: '#d6ac88', tunic: '#6c6db6', tunicD: '#4f4f92',
+  visor: '#7cb6b4', visorL: '#a9d6cf', yellow: '#dcd58c',
+};
+
+/* ===================================================================== */
+const W = 320, H = 180;
+const FONT = 'ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Liberation Mono", monospace';
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
+const base = mk(W, H), over = mk(W, H);
+const gBase = base.getContext('2d'), gOver = over.getContext('2d');
+let g = gBase;
+let S = 1, OX = 0, OY = 0, SHX = 0, SHY = 0;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(innerWidth * dpr); cv.height = Math.round(innerHeight * dpr);
+  S = Math.min(cv.width / W, cv.height / H);
+  OX = Math.round((cv.width - W * S) / 2); OY = Math.round((cv.height - H * S) / 2);
+  wrapCache.clear();
+}
+addEventListener('resize', resize);
+
+/* ---------- low-res primitives ---------- */
+function R(x, y, w, h, c) { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), Math.max(1, Math.round(w)), Math.max(1, Math.round(h))); }
+function P(x, y, c) { g.fillStyle = c; g.fillRect(Math.round(x), Math.round(y), 1, 1); }
+function L(x0, y0, x1, y1, c, t = 1) {
+  x0 = Math.round(x0); y0 = Math.round(y0); x1 = Math.round(x1); y1 = Math.round(y1);
+  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+  let e = dx + dy; g.fillStyle = c; const o = Math.floor(t / 2);
+  for (let i = 0; i < 4000; i++) {
+    g.fillRect(x0 - o, y0 - o, t, t);
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * e;
+    if (e2 >= dy) { e += dy; x0 += sx; }
+    if (e2 <= dx) { e += dx; y0 += sy; }
+  }
+}
+function D(x, y, w, h, c, lvl) { // dither: 1=25% 2=50% 3=75%
+  g.fillStyle = c; x = Math.round(x); y = Math.round(y);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const X = x + i, Y = y + j, a = ((X % 2) + 2) % 2, b = ((Y % 2) + 2) % 2;
+    const on = lvl === 1 ? (a === 0 && b === 0) : lvl === 2 ? ((a + b) % 2 === 0) : !(a === 0 && b === 0);
+    if (on) g.fillRect(X, Y, 1, 1);
+  }
+}
+function circ(cx, cy, r, c, fill) {
+  if (fill) { for (let y = -r; y <= r; y++) { const xx = Math.round(Math.sqrt(Math.max(0, r * r - y * y))); R(cx - xx, cy + y, xx * 2 + 1, 1, c); } }
+  else { const n = Math.max(12, Math.round(r * 8)); for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; P(cx + Math.cos(a) * r, cy + Math.sin(a) * r, c); } }
+}
+function rng(s) { return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; }
+const lerp = (a, b, t) => a + (b - a) * t, clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const easeOut = t => 1 - (1 - t) * (1 - t), easeIn = t => t * t, easeInOut = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+
+/* ---------- full-resolution text ---------- */
+function setFont(size) { ctx.font = `700 ${size * S}px ${FONT}`; }
+function tw(str, size) { setFont(size); return ctx.measureText(str).width / S; }
+function T(str, x, y, size, color, align = 'left') {
+  setFont(size); ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'top';
+  ctx.fillText(str, OX + (x + SHX) * S, OY + (y + SHY) * S);
+}
+const wrapCache = new Map();
+function wrap(text, maxW, size) {
+  const key = text + '|' + maxW + '|' + size;
+  if (wrapCache.has(key)) return wrapCache.get(key);
+  const words = text.split(' '), lines = []; let cur = '';
+  for (const w of words) { const t = cur ? cur + ' ' + w : w; if (tw(t, size) > maxW && cur) { lines.push(cur); cur = w; } else cur = t; }
+  if (cur) lines.push(cur);
+  wrapCache.set(key, lines); return lines;
+}
+function drawTyped(lines, n, x, y, size, lh, color, center) {
+  let left = n;
+  for (let i = 0; i < lines.length && left > 0; i++) {
+    const ln = lines[i], part = ln.slice(0, left); left -= ln.length + 1;
+    T(part, center ? x - tw(ln, size) / 2 : x, y + i * lh, size, color);
+  }
+}
+
+/* ---------- audio (WebAudio, synthesized) ---------- */
+let AC = null, MASTER = null, MUSICBUS = null, NOISE = null, muted = false;
+function unlockAudio() {
+  try {
+    if (!AC) {
+      const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+      AC = new C(); MASTER = AC.createGain(); MASTER.gain.value = muted ? 0 : SOUND.volume; MASTER.connect(AC.destination);
+      MUSICBUS = AC.createGain(); MUSICBUS.gain.value = MUSIC.volume; MUSICBUS.connect(MASTER);
+      NOISE = AC.createBuffer(1, AC.sampleRate, AC.sampleRate);
+      const d = NOISE.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (AC.state === 'suspended') AC.resume();
+  } catch (e) {}
+}
+function toggleMute() { muted = !muted; if (MASTER) MASTER.gain.value = muted ? 0 : SOUND.volume; }
+function tone(type, f0, f1, dur, vol, delay = 0) {
+  if (!AC) return;
+  try {
+    const t = AC.currentTime + delay, o = AC.createOscillator(), gn = AC.createGain();
+    o.type = type; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(vol, t + 0.005); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(gn); gn.connect(MASTER); o.start(t); o.stop(t + dur + 0.03);
+  } catch (e) {}
+}
+function noise(dur, vol, type, f0, f1, delay = 0) {
+  if (!AC) return;
+  try {
+    const t = AC.currentTime + delay, s = AC.createBufferSource(), f = AC.createBiquadFilter(), gn = AC.createGain();
+    s.buffer = NOISE; f.type = type; f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    f.Q.value = type === 'bandpass' ? 1.2 : 0.7;
+    gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    s.connect(f); f.connect(gn); gn.connect(MASTER); s.start(t, Math.random() * 0.4); s.stop(t + dur + 0.03);
+  } catch (e) {}
+}
+const sfx = {
+  blip(v) { const j = v === 'jude'; tone('square', j ? 290 + Math.random() * 30 : 560 + Math.random() * 40, j ? 280 : 540, 0.045, 0.05); },
+  thunk() { tone('sine', 170, 46, 0.18, 0.7); noise(0.07, 0.35, 'lowpass', 1400, 250); },
+  thunkSoft() { tone('sine', 140, 60, 0.12, 0.3); },
+  slide() { noise(0.17, 0.2, 'bandpass', 3000, 900); },
+  slam() { tone('sine', 95, 26, 0.7, 0.95); tone('square', 60, 30, 0.3, 0.12); noise(0.55, 0.7, 'lowpass', 2500, 90); },
+  pop() { tone('triangle', 500, 900, 0.1, 0.18); },
+};
+
+/* ---------- background music (lookahead scheduler) ---------- */
+const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
+const music = {
+  on: false, step: 0, next: 0,
+  note(type, f, t, dur, vol) {
+    const o = AC.createOscillator(), gn = AC.createGain();
+    o.type = type; o.frequency.setValueAtTime(f, t);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(vol, t + 0.006); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(gn); gn.connect(MUSICBUS); o.start(t); o.stop(t + dur + 0.03);
+  },
+  tick(t) {
+    const s = AC.createBufferSource(), f = AC.createBiquadFilter(), gn = AC.createGain();
+    s.buffer = NOISE; f.type = 'highpass'; f.frequency.value = 6000;
+    gn.gain.setValueAtTime(MUSIC.tickVol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+    s.connect(f); f.connect(gn); gn.connect(MUSICBUS); s.start(t, Math.random() * 0.5); s.stop(t + 0.05);
+  },
+  update(want) {
+    if (!AC || !MUSICBUS || !MUSIC.enabled || !want) { this.on = false; return; }
+    const stepDur = 60 / MUSIC.bpm / 2;
+    if (!this.on || this.next < AC.currentTime - 0.25) { this.on = true; this.step = 0; this.next = AC.currentTime + 0.06; }
+    try {
+      while (this.next < AC.currentTime + 0.15) {
+        const i = this.step, t = this.next, m = MUSIC.melody[i % MUSIC.melody.length], b = MUSIC.bass[i % MUSIC.bass.length];
+        if (m != null) this.note('square', mtof(m), t, stepDur * 1.6, MUSIC.melodyVol);
+        if (b != null) this.note('triangle', mtof(b), t, stepDur * 3.5, MUSIC.bassVol);
+        if (i % 2 === 1) this.tick(t);
+        this.next += stepDur; this.step = (this.step + 1) % MUSIC.melody.length;
+      }
+    } catch (e) {}
+  },
+};
+const musicWanted = () => scene === 'intro' ||
+  (scene === 'filing' && F && (F.sub === null || F.sub === 'doodleMove' || F.sub === 'propReady'));
+
+/* ---------- typewriter ---------- */
+class Typer {
+  constructor(text, ms, voice) { this.text = text; this.n = 0; this.acc = 0; this.ms = ms; this.voice = voice; }
+  get done() { return this.n >= this.text.length; }
+  finish() { this.n = this.text.length; }
+  update(dt) {
+    if (this.done) return; this.acc += dt;
+    while (!this.done && this.acc >= this.ms) {
+      this.acc -= this.ms; const ch = this.text[this.n++];
+      if (/[.,!?]/.test(ch) && !this.done) this.acc -= TIMING.punctPauseMs;
+      if (ch !== ' ' && this.n % 2 === 1) sfx.blip(this.voice);
+    }
+  }
+}
+
+/* =====================================================================
+   ART
+   ===================================================================== */
+function drawJude(x, y, u, o = {}) {
+  const r = (a, b, w, h, c) => R(x + a * u, y + b * u, w * u, h * u, c), B = PAL.ink;
+  // body
+  r(-1, 13, 14, 12, B); r(0, 14, 12, 11, PAL.tunic); r(9, 14, 3, 11, PAL.tunicD);
+  r(4, 13, 4, 2, PAL.cream); r(5, 14, 2, 2, B);
+  r(2, 17, 3, 3, PAL.tunicD); r(3, 15, 1, 2, PAL.yellow); // pocket + pencil
+  r(5, 12, 2, 2, PAL.skinD); // neck
+  // head
+  r(1, 0, 10, 12, B); r(0, 1, 12, 10, B); r(1, 1, 10, 10, PAL.skin); r(9, 3, 2, 7, PAL.skinD);
+  r(-1, 5, 2, 3, B); r(11, 5, 2, 3, B); // ears
+  r(1, 3, 2, 3, B); r(9, 3, 2, 3, B);   // hair under visor
+  // visor
+  r(0, 0, 12, 3, B); r(1, 1, 10, 2, PAL.visor);
+  r(-2, 3, 16, 2, B); r(-1, 3, 14, 1, PAL.visorL);
+  r(1, 5, 10, 1, PAL.skinD);
+  // eyes
+  const look = o.look || 0, ey = 6 + look;
+  if (o.blink) { r(3, 7, 2, 1, B); r(7, 7, 2, 1, B); }
+  else {
+    r(3, ey, 2, 2, B); r(7, ey, 2, 2, B); r(3, ey, 1, 1, PAL.white); r(7, ey, 1, 1, PAL.white);
+    if (o.bored && !look) { r(3, 6, 2, 1, PAL.skinD); r(7, 6, 2, 1, PAL.skinD); }
+  }
+  if (o.bored) { r(3, 8, 2, 1, PAL.pink); r(7, 8, 2, 1, PAL.pink); }
+  // mouth
+  r(5, 9, 3, 1, B);
+  if (o.bored) { r(4, 10, 1, 1, B); r(8, 10, 1, 1, B); }
+}
+
+function drawStamp(sx, sy, k = 1) { // (sx,sy) = bottom centre of stamp
+  R(sx - 8 * k, sy - 5 * k, 16 * k, 5 * k, PAL.ink); R(sx - 7 * k, sy - 4 * k, 14 * k, 3 * k, PAL.slateD); R(sx - 7 * k, sy - 2 * k, 14 * k, k, PAL.violet);
+  R(sx - 2 * k, sy - 11 * k, 4 * k, 6 * k, PAL.ink); R(sx - k, sy - 11 * k, 2 * k, 6 * k, PAL.tan);
+  R(sx - 4 * k, sy - 16 * k, 8 * k, 6 * k, PAL.ink); R(sx - 3 * k, sy - 15 * k, 6 * k, 4 * k, PAL.coral); R(sx - 2 * k, sy - 15 * k, 2 * k, k, PAL.coralL);
+}
+
+function drawStack(x0, w, yTop, yBase, seed) {
+  R(x0 + 3, yBase - 1, w, 3, PAL.slateDD);
+  for (let y = yBase; y > yTop; y -= 2) {
+    const o = Math.round(Math.sin(y * 0.045 + seed) * 2 + Math.sin(y * 0.11 + seed * 3) * 0.8), yy = y - 2;
+    const stick = (((y * 13 + seed * 7) % 23) + 23) % 23 === 0;
+    R(x0 + o - 1 - (stick ? 3 : 0), yy, w + 2 + (stick ? 5 : 0), 2, PAL.ink);
+    R(x0 + o - (stick ? 3 : 0), yy, w + (stick ? 5 : 0), 1, PAL.cream);
+    R(x0 + o, yy + 1, w, 1, PAL.creamD);
+    R(x0 + o + w - 4, yy, 4, 2, PAL.tan);
+  }
+}
+
+function drawMachine(stage, ox, oy, k, c) {
+  if (stage < 1) return;
+  const l = (a, b, a2, b2) => L(ox + a * k, oy + b * k, ox + a2 * k, oy + b2 * k, c);
+  l(2, 43, 54, 43);                       // ground
+  l(26, 42, 30, 31); l(30, 31, 34, 42);   // pivot
+  l(6, 35, 52, 25);                       // lever
+  circ(ox + 6 * k, oy + 35 * k, Math.max(1, Math.round(2 * k)), c, false);
+  l(50, 25, 50, 30);                      // stamp
+  R(ox + 45 * k, oy + 30 * k, Math.max(2, 11 * k), Math.max(2, 4 * k), c);
+  if (stage >= 2) { const xs = [8, 4, 12, 4, 12, 8]; for (let i = 0; i < 5; i++) l(xs[i], 36 + i * 1.4, xs[i + 1], 36 + (i + 1) * 1.4); }
+  if (stage >= 3) {
+    l(12, 2, 40, 16); l(10, 8, 38, 22);   // chute
+    l(18, 7, 25, 10.5);                    // page in chute
+    l(41, 21, 46, 36); l(46, 36, 44, 33); l(46, 36, 47, 32); // arrow to stamp
+  }
+  if (stage >= 4) {
+    l(52, 14, 52, 25);                     // stalk
+    circ(ox + 52 * k, oy + 10 * k, Math.max(1, Math.round(3.5 * k)), c, false);
+    R(ox + 50 * k, oy + 10 * k, Math.max(1, 2 * k), Math.max(1, 2 * k), c); // pupil, looking at chute
+    l(49, 5, 48, 3); l(52, 5, 52, 3); l(55, 5, 56, 3); // lashes
+  }
+}
+
+/* ---------- caches ---------- */
+let wallC, deskC; const panels = [];
+function withCanvas(w, h, fn) { const c = mk(w, h), prev = g; g = c.getContext('2d'); fn(); g = prev; return c; }
+
+function buildCaches() {
+  wallC = withCanvas(W, H, () => {
+    R(0, 0, W, H, PAL.coral); D(0, 0, W, 22, PAL.coralD, 2); D(0, 22, W, 16, PAL.coralD, 1);
+    const r = rng(3);
+    for (let x = 62; x < W;) {
+      const w = 6 + Math.floor(r() * 10), h = 12 + Math.floor(r() * 28);
+      R(x, 112 - h, w, h, PAL.coralL); D(x, 112 - h, w, h, PAL.coral, 1); R(x, 112 - h, w, 1, PAL.cream);
+      x += w + 3 + Math.floor(r() * 6);
+    }
+  });
+  deskC = withCanvas(W, H, () => {
+    R(0, 111, W, 1, PAL.ink); R(0, 112, W, 48, PAL.slate); R(0, 112, W, 1, PAL.cream); D(0, 140, W, 20, PAL.slateD, 1);
+    R(0, 160, W, 1, PAL.ink); R(0, 161, W, 19, PAL.slateD); R(0, 161, W, 1, PAL.slate); D(0, 170, W, 10, PAL.slateDD, 2);
+    drawStack(6, 44, -10, 150, 1);
+  });
+  const PW_ = 176, PH_ = 99;
+  const galaxy = (cx, cy, sc, seed) => {
+    const r = rng(seed);
+    for (let i = 0; i < 70; i++) P(r() * PW_, r() * PH_, r() < .3 ? PAL.cream : PAL.slateD);
+    for (let arm = 0; arm < 2; arm++) for (let i = 0; i < 320; i++) {
+      const t = i / 320, a = t * 7.5 + arm * Math.PI + r() * 0.25, rad = (2 + t * 44) * sc;
+      P(cx + Math.cos(a) * rad + (r() - .5) * 3 * sc, cy + Math.sin(a) * rad * 0.55 + (r() - .5) * 2 * sc,
+        t < .18 ? PAL.cream : t < .45 ? PAL.pink : (r() < .5 ? PAL.teal : PAL.slate));
+    }
+    D(cx - 10 * sc, cy - 5 * sc, 20 * sc, 10 * sc, PAL.pink, 1); circ(cx, cy, Math.max(2, Math.round(3 * sc)), PAL.cream, true); P(cx, cy, PAL.white);
+  };
+  const arts = {
+    galaxy() { R(0, 0, PW_, PH_, PAL.navy); galaxy(88, 50, 1, 11); },
+    dark() {
+      R(0, 0, PW_, PH_, PAL.navy); galaxy(88, 50, 1, 11); g.fillStyle = '#000';
+      for (let y = 0; y < PH_; y++) for (let x = 0; x < PW_; x++) if (!(x % 4 === 0 && y % 3 === 0)) g.fillRect(x, y, 1, 1);
+    },
+    terminus() {
+      R(0, 0, PW_, PH_, PAL.navy); galaxy(18, 50, 1.5, 11);
+      circ(140, 58, 9, PAL.ink, true); circ(140, 58, 8, PAL.tealD, true); circ(138, 56, 6, PAL.teal, true); circ(136, 54, 2, PAL.cream, true);
+      P(145, 63, PAL.yellow); P(143, 64, PAL.yellow);
+    },
+    hall() {
+      R(0, 0, PW_, PH_, PAL.coral); D(0, 0, PW_, 22, PAL.coralD, 2);
+      R(0, 56, PW_, 43, PAL.slate); R(0, 56, PW_, 1, PAL.cream);
+      for (let i = -3; i < 12; i++) L(88, 56, i * 20 - 20, 99, PAL.slateD);
+      for (const z of [7, 5.5, 4.2, 3.2, 2.4, 1.7, 1.25]) {
+        const sc = 1 / z, w = Math.round(26 * sc + 3), h = Math.round(110 * sc), bs = Math.round(56 + 46 * sc);
+        for (const side of [-1, 1]) {
+          const xc = 88 + side * (10 + 92 * sc);
+          drawStack(xc - w / 2, w, bs - h, bs, z * 3 + side);
+          R(xc - side * (w / 2 + 3), bs - 6 * sc - 2, Math.max(1, 2 * sc), 6 * sc + 2, PAL.ink); // tiny clerk
+        }
+      }
+    },
+    portrait() {
+      R(0, 0, PW_, PH_, PAL.coralL); D(0, 0, PW_, PH_, PAL.coral, 2);
+      drawJude(20, 16, 5, { bored: false });
+      R(0, 86, PW_, 13, PAL.slate); R(0, 86, PW_, 1, PAL.ink);
+    },
+    stamp() {
+      R(0, 0, PW_, PH_, PAL.slate); D(0, 0, PW_, PH_, PAL.slateD, 1);
+      drawJude(30, 18, 4, { bored: false });
+      L(74, 78, 112, 30, PAL.ink, 9); L(74, 78, 112, 30, PAL.tunic, 6);
+      drawStamp(118, 52, 2);
+      circ(118, 26, 5, PAL.ink, true); circ(118, 26, 4, PAL.skin, true);
+      for (let i = 0; i < 5; i++) { L(132 + i * 2, 70 - i * 5, 140 + i * 3, 68 - i * 5, PAL.cream); } // motion
+    },
+  };
+  for (const p of COPY.intro) panels.push(withCanvas(PW_, PH_, arts[p.art] || arts.galaxy));
+}
+
+/* =====================================================================
+   STATE MACHINE
+   ===================================================================== */
+let scene = 'title', sceneT0 = 0, now = 0, I = null, F = null;
+const PW = 120, PH = 62, MW = 150, MH = 72;
+const REST = { x: 160, y: 144 }, STACK_OUT = { x: 28, y: 70, sc: 0.34 };
+const PILE_X = [58, 224], PILE_W = 38, PILE_BASE = 150, STAMP_REST = { x: 198, y: 110 };
+const BB = { x: 96, y: 4, w: 206, h: 54 };
+const pileH = n => 3 + Math.min(n * 2, 40);
+const isAdv = k => k === 'z' || k === ' ' || k === 'Enter';
+
+function goTitle() { scene = 'title'; sceneT0 = now; I = null; F = null; SHX = SHY = 0; }
+function startIntro() { scene = 'intro'; sceneT0 = now; I = { i: 0, typer: null }; setPanel(0); }
+function setPanel(i) { I.i = i; I.typer = new Typer(COPY.intro[i].text, TIMING.introTypeMs, 'narr'); }
+function introKey(k) {
+  if (!isAdv(k)) return;
+  if (!I.typer.done) { I.typer.finish(); return; }
+  if (I.i < COPY.intro.length - 1) setPanel(I.i + 1); else startFiling();
+}
+
+function startFiling() {
+  scene = 'filing'; sceneT0 = now;
+  F = { filed: 0, piles: [0, 0], cur: null, anim: null, buffer: null, thought: null, stage: 0, idx: 0,
+        sub: null, t0: 0, newY: null, hideBubble: false, shakeT: 0, shakeA: 0, shakeDur: 0, extraSlump: 0, judeY: 66 };
+  spawnPage(0);
+}
+function jumpEnding() {
+  startFiling();
+  F.filed = COPY.pages.length - 1; F.piles = [9, 9]; F.stage = 4;
+  F.thought = new Typer(COPY.pages[COPY.pages.length - 2].thought, TIMING.typeMs, 'jude'); F.thought.finish();
+  spawnPage(COPY.pages.length - 1);
+}
+function spawnPage(i) {
+  const d = COPY.pages[i]; F.idx = i;
+  F.cur = { kind: d.blank ? 'blank' : 'page', title: d.title || '', entry: d.entry || '', data: d, w: PW, h: PH, mark: null,
+            state: 'drop', t0: now, dur: TIMING.drop, arc: 14,
+            sx: STACK_OUT.x, sy: STACK_OUT.y, ssc: STACK_OUT.sc, x: STACK_OUT.x, y: STACK_OUT.y, sc: STACK_OUT.sc };
+}
+function shake(a, dur) { F.shakeT = now; F.shakeA = a; F.shakeDur = dur; }
+
+function arrow(dir) {
+  if (!F) return;
+  if (F.thought) F.thought.finish();
+  const c = F.cur;
+  const ready = c && c.state === 'ready' && !F.anim && (F.sub === null || F.sub === 'propReady' || F.sub === 'memoReady');
+  if (ready) {
+    F.anim = { dir, t0: now, dest: c.kind === 'proposal' ? 'up' : 'pile',
+               tx: c.x - c.w / 2 + (c.w - 22), ty: c.y - c.h / 2 + (c.h - 13) + 5, fired: false, left: false };
+  } else if (F.sub === null) F.buffer = dir;
+}
+
+function onLand(c) {
+  if (c.kind === 'page') {
+    const d = c.data;
+    if (d.thought) F.thought = new Typer(d.thought, TIMING.typeMs, 'jude');
+    if (d.stage) F.stage = d.stage;
+    if (F.buffer !== null && F.sub === null) { const b = F.buffer; F.buffer = null; arrow(b); }
+  } else if (c.kind === 'blank') { F.sub = 'doodleMove'; F.t0 = now; F.buffer = null; }
+  else if (c.kind === 'memo') { F.sub = 'memoReady'; F.hideBubble = false; F.thought = new Typer(COPY.memoThought, TIMING.typeMs, 'jude'); sfx.thunkSoft(); }
+}
+
+function updAnim() {
+  const a = F.anim, c = F.cur, e = now - a.t0, Tm = TIMING;
+  if (!a.fired && e >= Tm.stampDown) { a.fired = true; c.mark = a.dir; sfx.thunk(); shake(1.5, 90); }
+  if (!a.left && e >= Tm.stampDown + Tm.stampHold) {
+    a.left = true; c.state = 'leaving'; c.lt0 = now; sfx.slide();
+    if (a.dest === 'up') { c.dest = 'up'; c.tx = REST.x; c.ty = -70; c.tsc = 0.8; c.ldur = Tm.upChain; }
+    else { c.dest = 'pile'; c.tsc = PILE_W / c.w; c.tx = PILE_X[a.dir] + PILE_W / 2; c.ty = PILE_BASE - pileH(F.piles[a.dir]) - (c.h * c.tsc) / 2 + 3; c.ldur = Tm.slide; }
+  }
+  if (a.left && now - c.lt0 >= c.ldur) { F.anim = null; finishLeave(a, c); }
+}
+function finishLeave(a, c) {
+  if (c.dest === 'pile') F.piles[a.dir]++;
+  F.filed++; F.cur = null;
+  if (F.sub === null) { if (F.idx + 1 < COPY.pages.length) spawnPage(F.idx + 1); }
+  else if (F.sub === 'propReady') { F.sub = 'silence'; F.t0 = now; F.hideBubble = true; }
+  else if (F.sub === 'memoReady') { F.sub = 'slamWait'; F.t0 = now; }
+}
+
+function updFiling(dt) {
+  if (F.thought) F.thought.update(dt);
+  const c = F.cur;
+  if (c && c.state === 'drop') {
+    const p = clamp((now - c.t0) / c.dur, 0, 1), e = easeOut(p);
+    c.x = lerp(c.sx, REST.x, e); c.y = lerp(c.sy, c.ry || REST.y, e) - Math.sin(p * Math.PI) * c.arc; c.sc = lerp(c.ssc, 1, e);
+    if (p >= 1) { c.state = 'ready'; c.x = REST.x; c.y = c.ry || REST.y; c.sc = 1; onLand(c); }
+  }
+  if (F.anim) updAnim();
+  const c2 = F.cur;
+  if (c2 && c2.state === 'leaving') {
+    const p = clamp((now - c2.lt0) / c2.ldur, 0, 1), e = c2.dest === 'up' ? easeIn(p) : easeInOut(p);
+    c2.x = lerp(REST.x, c2.tx, e); c2.y = lerp(c2.ry || REST.y, c2.ty, e); c2.sc = lerp(1, c2.tsc, e);
+  }
+  // ending
+  if (F.sub === 'doodleMove' && now - F.t0 >= TIMING.doodleHold + TIMING.doodleMove) {
+    const cc = F.cur; cc.kind = 'proposal'; cc.title = COPY.proposalTitle; cc.entry = COPY.proposalEntry;
+    F.stage = 0; F.sub = 'propReady'; sfx.pop();
+  }
+  if (F.sub === 'silence' && now - F.t0 >= TIMING.silence) {
+    F.thought = null;
+    F.cur = { kind: 'memo', title: COPY.memoTitle, entry: COPY.memoBody, w: MW, h: MH, mark: null, state: 'drop', t0: now, dur: TIMING.memoDrop, arc: 0,
+              sx: REST.x, sy: -60, ssc: 1, x: REST.x, y: -60, sc: 1, ry: 139 };
+    F.sub = 'memoDrop'; sfx.slide();
+  }
+  if (F.sub === 'slamWait' && now - F.t0 >= TIMING.slamDelay) { F.sub = 'slam'; F.t0 = now; }
+  if (F.sub === 'slam') {
+    const p = clamp((now - F.t0) / TIMING.slamFall, 0, 1); F.newY = lerp(-280, 0, easeIn(p));
+    if (p >= 1) { F.sub = 'after'; F.t0 = now; sfx.slam(); shake(5, 500); F.extraSlump = 3; }
+  }
+  if (F.sub === 'after' && now - F.t0 >= TIMING.afterSlam) { scene = 'end'; sceneT0 = now; SHX = SHY = 0; return; }
+  // shake
+  if (F.shakeT && now - F.shakeT < F.shakeDur) {
+    const a = F.shakeA * (1 - (now - F.shakeT) / F.shakeDur);
+    SHX = Math.round((Math.random() * 2 - 1) * a); SHY = Math.round((Math.random() * 2 - 1) * a);
+  } else { SHX = SHY = 0; }
+}
+
+/* =====================================================================
+   RENDER
+   ===================================================================== */
+function drawPageArt(c) {
+  const sc = c.sc, w = c.w * sc, h = c.h * sc, x = c.x - w / 2, y = c.y - h / 2, memo = c.kind === 'memo';
+  R(x + 2, y + 2, w, h, PAL.slateDD);
+  R(x - 1, y - 1, w + 2, h + 2, PAL.ink);
+  R(x, y, w, h, memo ? '#e3eaf1' : PAL.cream);
+  R(x, y + h - 1, w, 1, PAL.creamD);
+  if (memo) R(x, y, w, 9 * sc, PAL.slateD);
+  else if (c.kind !== 'blank') R(x + 6 * sc, y + 18 * sc, w - 12 * sc, 1, PAL.creamD);
+  if (c.kind === 'proposal') drawMachine(4, x + 44 * sc, y + 28 * sc, 0.55 * sc, PAL.slateDD);
+}
+function drawPageText(c) {
+  if (c.kind === 'blank') { if (c.mark === null) return; }
+  const sc = c.sc, x0 = c.x - c.w / 2 * sc, y0 = c.y - c.h / 2 * sc;
+  ctx.save(); ctx.translate(OX + (x0 + SHX) * S, OY + (y0 + SHY) * S); ctx.scale(S * sc, S * sc);
+  ctx.textBaseline = 'top'; ctx.textAlign = 'left';
+  const f = s => `700 ${s}px ${FONT}`;
+  const fit = (str, x, y, size, maxW) => { ctx.font = f(size); const w = ctx.measureText(str).width; if (w > maxW) ctx.font = f(size * maxW / w); ctx.fillText(str, x, y); };
+  const wrapL = (text, maxW) => { const out = []; let cur = ''; for (const wd of text.split(' ')) { const t = cur ? cur + ' ' + wd : wd; if (ctx.measureText(t).width > maxW && cur) { out.push(cur); cur = wd; } else cur = t; } if (cur) out.push(cur); return out; };
+  if (c.kind === 'memo') {
+    ctx.fillStyle = PAL.cream; ctx.font = f(6); ctx.fillText(COPY.memoHeader, 6, 1.5);
+    ctx.fillStyle = PAL.ink; fit(c.title, 6, 13, 9, c.w - 12);
+    ctx.font = f(7); const ls = wrapL(c.entry, c.w - 12);
+    ls.forEach((l, i) => ctx.fillText(l, 6, 25 + i * 9));
+    ctx.fillText(COPY.memoSign, 6, 27 + ls.length * 9);
+  } else if (c.kind !== 'blank') {
+    ctx.fillStyle = PAL.ink; fit(c.title, 8, 6, 10, c.w - 16);
+    const es = c.kind === 'proposal' ? 6.5 : 7; ctx.font = f(es);
+    wrapL(c.entry, c.w - 16).forEach((l, i) => ctx.fillText(l, 8, (c.kind === 'proposal' ? 20 : 22) + i * 9));
+  }
+  if (c.mark !== null) {
+    ctx.save(); ctx.translate(c.w - 22, c.h - 13); ctx.rotate(-0.14); ctx.globalAlpha = 0.88;
+    ctx.strokeStyle = PAL.violet; ctx.lineWidth = 1.6; ctx.strokeRect(-17, -7.5, 34, 15);
+    ctx.fillStyle = PAL.violet; ctx.font = f(9); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(c.mark === 0 ? COPY.markL : COPY.markR, 0, 0.8); ctx.restore();
+  }
+  ctx.restore();
+}
+function drawPile(i) {
+  const n = F.piles[i], x = PILE_X[i], h = pileH(n), top = PILE_BASE - h;
+  R(x - 3, PILE_BASE - 2, PILE_W + 6, 4, PAL.ink); R(x - 2, PILE_BASE - 1, PILE_W + 4, 2, PAL.slateDD);
+  for (let y = 0; y < h - 2; y++) {
+    const yy = PILE_BASE - 2 - y, o = ((yy * 7 + i * 3) % 5 === 0) ? 1 : 0;
+    R(x - 1 + o, yy, PILE_W + 2, 1, PAL.ink); R(x + o, yy, PILE_W, 1, (y % 2) ? PAL.creamD : PAL.cream);
+  }
+  R(x - 1, top - 1, PILE_W + 2, 1, PAL.ink); R(x, top, PILE_W, 3, PAL.cream);
+}
+const bubbleVisible = () => F.thought && !F.hideBubble;
+function drawBubbleArt() {
+  const { x, y, w, h } = BB;
+  R(x + 2, y, w - 4, h, PAL.ink); R(x, y + 2, w, h - 4, PAL.ink);
+  R(x + 2, y + 1, w - 4, h - 2, PAL.cream); R(x + 1, y + 2, w - 2, h - 4, PAL.cream);
+  D(x + 3, y + h - 5, w - 6, 3, PAL.creamD, 1);
+  const blob = (bx, by, bw, bh) => { R(bx - 1, by - 1, bw + 2, bh + 2, PAL.ink); R(bx, by, bw, bh, PAL.cream); };
+  blob(167, 59, 6, 3); blob(161, 63, 3, 2);
+  if (F.stage > 0 && F.sub !== 'doodleMove') drawMachine(F.stage, 242, 9, 1, PAL.slateDD);
+}
+function drawArmStamp() {
+  const breath = Math.sin(now / 700) > 0.2 ? 1 : 0;
+  let sx = STAMP_REST.x, sy = STAMP_REST.y;
+  const a = F.anim;
+  if (a) {
+    const e = now - a.t0, Tm = TIMING;
+    if (e < Tm.stampDown) { const p = easeIn(e / Tm.stampDown); sx = lerp(sx, a.tx, p); sy = lerp(sy, a.ty, p); }
+    else if (e < Tm.stampDown + Tm.stampHold) { sx = a.tx; sy = a.ty; }
+    else { const p = easeOut(clamp((e - Tm.stampDown - Tm.stampHold) / Tm.slide, 0, 1)); sx = lerp(a.tx, sx, p); sy = lerp(a.ty, sy, p); }
+  } else sy += breath * 0;
+  const shx = 144 + 11 * 2, shy = F.judeY + 15 * 2;
+  L(shx, shy, sx, sy - 13, PAL.ink, 5); L(shx, shy, sx, sy - 13, PAL.tunic, 3);
+  drawStamp(sx, sy, 1);
+  circ(sx, sy - 13, 3, PAL.ink, true); circ(sx, sy - 13, 2, PAL.skin, true);
+}
+
+function artFiling() {
+  g = gBase; g.drawImage(wallC, 0, 0);
+  const breath = Math.sin(now / 700) > 0.2 ? 1 : 0;
+  const sl = Math.min(5, Math.floor(F.filed / 3)) + F.extraSlump;
+  F.judeY = 66 + sl + breath;
+  const lookUp = F.sub === 'silence' || F.sub === 'memoDrop';
+  const blink = !lookUp && (now % TIMING.blinkEvery) < TIMING.blinkLen;
+  drawJude(144, F.judeY, 2, { blink, bored: F.filed >= 5, look: lookUp ? -1 : 0 });
+  g.drawImage(deskC, 0, 0);
+  // left arm resting on desk
+  const lsy = F.judeY + 30;
+  L(146, lsy, 134, 117, PAL.ink, 5); L(146, lsy, 134, 117, PAL.tunic, 3);
+  circ(133, 118, 3, PAL.ink, true); circ(133, 118, 2, PAL.skin, true);
+  drawPile(0); drawPile(1);
+  if (bubbleVisible()) drawBubbleArt();
+  if (F.cur) drawPageArt(F.cur);
+  if (F.sub === 'doodleMove' && F.cur) {
+    const p = easeInOut(clamp((now - F.t0 - TIMING.doodleHold) / TIMING.doodleMove, 0, 1)), c = F.cur;
+    drawMachine(4, lerp(242, c.x - c.w / 2 + 44, p), lerp(9, c.y - c.h / 2 + 28, p), lerp(1, 0.55, p), PAL.slateDD);
+  }
+  g = gOver; drawArmStamp();
+  if (F.newY !== null) drawStack(268, 46, F.newY - 460, PILE_BASE + F.newY, 7);
+  g = gBase;
+}
+function textFiling() {
+  if (!(F.cur && F.cur.kind === 'memo' && F.cur.state !== 'leaving')) {
+    T(COPY.pileL, PILE_X[0] + PILE_W / 2, 152.5, 6.5, PAL.ink, 'center');
+    T(COPY.pileR, PILE_X[1] + PILE_W / 2, 152.5, 6.5, PAL.ink, 'center');
+  }
+  T(COPY.readFiled + F.filed, 6, 162.5, 7, PAL.cream);
+  T(COPY.readErrors, 6, 171, 7, PAL.cream);
+  if (bubbleVisible()) {
+    const doodle = F.stage > 0 && F.sub !== 'doodleMove', maxW = doodle ? 132 : 190;
+    const lines = wrap(F.thought.text, maxW, 8), y0 = BB.y + (BB.h - lines.length * 10) / 2 + 1;
+    drawTyped(lines, F.thought.n, 104, y0, 8, 10, PAL.ink, false);
+  }
+  if (F.cur) drawPageText(F.cur);
+}
+
+function artIntro() {
+  g = gBase; R(0, 0, W, H, '#000');
+  R(68, 8, 184, 107, PAL.white); R(70, 10, 180, 103, '#000');
+  g.drawImage(panels[I.i], 72, 12);
+}
+function textIntro() {
+  if (COPY.intro[I.i].art === 'portrait') {
+    T(COPY.portraitName, 72 + 104, 12 + 22, 22, PAL.ink); T(COPY.portraitName, 72 + 103, 12 + 21, 22, PAL.cream);
+    T(COPY.portraitJob, 72 + 104, 12 + 48, 10, PAL.ink);
+  }
+  const lines = wrap(I.typer.text, 290, 8.5);
+  drawTyped(lines, I.typer.n, 160, 124, 8.5, 11.5, PAL.white, true);
+}
+
+function update(dt) {
+  if (scene === 'intro') I.typer.update(dt);
+  else if (scene === 'filing') updFiling(dt);
+}
+function render() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.save(); ctx.beginPath(); ctx.rect(OX, OY, W * S, H * S); ctx.clip();
+  gOver.clearRect(0, 0, W, H); g = gBase; gBase.fillStyle = '#000'; gBase.fillRect(0, 0, W, H);
+  if (scene === 'intro') artIntro();
+  else if (scene === 'filing') artFiling();
+  ctx.drawImage(base, OX + SHX * S, OY + SHY * S, W * S, H * S);
+  if (scene === 'title') {
+    T(COPY.title, 160, 62, 28, PAL.cream, 'center');
+    if (Math.floor((now - sceneT0) / TIMING.titleBlink) % 2 === 0) T(COPY.pressKey, 160, 112, 8, '#9a9a9a', 'center');
+  } else if (scene === 'intro') textIntro();
+  else if (scene === 'filing') textFiling();
+  else if (scene === 'end') {
+    T(COPY.endTitle, 160, 74, 26, PAL.white, 'center');
+    if (now - sceneT0 > TIMING.endCardGuard) T(COPY.pressKey, 160, 118, 7, '#6d6d6d', 'center');
+  }
+  ctx.drawImage(over, OX + SHX * S, OY + SHY * S, W * S, H * S);
+  ctx.restore();
+}
+
+/* ---------- input ---------- */
+function toggleFS() {
+  try {
+    const d = document, el = d.documentElement;
+    const p = !d.fullscreenElement ? (el.requestFullscreen || el.webkitRequestFullscreen).call(el) : (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+addEventListener('keydown', e => {
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key;
+  if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Tab'].includes(k)) return;
+  if ([' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Enter'].includes(k)) e.preventDefault();
+  if (e.repeat) return;
+  unlockAudio();
+  const kl = k.length === 1 ? k.toLowerCase() : k;
+  if (kl === 'f') { toggleFS(); return; }
+  if (kl === 'm') { toggleMute(); return; }
+  if (kl === 'r') { goTitle(); return; }
+  if (kl === 'e') { jumpEnding(); return; }
+  if (scene === 'title') startIntro();
+  else if (scene === 'intro') introKey(kl);
+  else if (scene === 'filing') {
+    if (k === 'ArrowLeft') arrow(0);
+    else if (k === 'ArrowRight') arrow(1);
+    else if (isAdv(kl) && F.thought) F.thought.finish();
+  } else if (scene === 'end') { if (now - sceneT0 > TIMING.endCardGuard) goTitle(); }
+});
+
+/* ---------- boot ---------- */
+resize(); buildCaches();
+let last = 0;
+function frame(t) {
+  const dt = last ? Math.min(100, t - last) : 16; last = t; now = t;
+  try { update(dt); music.update(musicWanted()); render(); } catch (err) { console.error(err); }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
